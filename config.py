@@ -1,0 +1,26 @@
+TRAIN_PATH = "data/raw/emnist-balanced-train.csv"
+TEST_PATH = "data/raw/emnist-balanced-test.csv"
+CHECKPOINT_PATH = "checkpoints/vae_weights.npz"
+GENERATED_IMAGE_PATH = "outputs/generated_samples.png"
+LATENT_VISUALIZATION_PATH = "outputs/latent_vector.png"
+
+IMAGE_HEIGHT = 28
+IMAGE_WIDTH = 28
+
+CLASSES = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghnqrt"
+RANDOM_SEED = 9
+
+INPUT_DIM = IMAGE_HEIGHT * IMAGE_WIDTH
+
+BATCH_SIZE = 128
+HIDDEN_DIMS = [512, 256]
+LATENT_DIM = 16
+
+LEARNING_RATE = 0.001
+KL_BETA = 1.0
+
+EPOCHS = 100
+
+GENERATION_ROWS = 5
+GENERATION_COLUMNS = 5
+LATENT_SAMPLE_INDEX = 0
