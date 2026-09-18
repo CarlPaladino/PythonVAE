@@ -30,7 +30,6 @@ def plot_samples(images, labels, rng, count=15):
 def train(model, images, rng, epochs, batch_size, learning_rate, beta, checkpoint_path):
     if epochs <= 0 or batch_size <= 0 or len(images) == 0:
         raise ValueError("Epochs, batch size, and sample count must be positive.")
-    # Convert once at the boundary; batches remain NumPy arrays.
     images = np.asarray(images, dtype=model.dtype)
     loss_function = VAELoss(beta)
     optimizer = Adam(model.get_trainable_layers(), learning_rate=learning_rate)
