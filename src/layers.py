@@ -1,8 +1,3 @@
-"""NumPy performs the arithmetic; named steps show the underlying equations.
-
-A batch has shape (samples, features). Parameters and activations stay as
-arrays throughout training. Use array.tolist() only when inspecting values.
-"""
 import numpy as np
 
 
@@ -16,7 +11,6 @@ class Dense:
         self.dweights = None
         self.dbiases = None
 
-        # One connection for each input feature / output neuron pair.
         weight_scale = np.sqrt(2.0 / input_dim)
         self.weights = rng.normal(0.0, weight_scale, (input_dim, output_dim)).astype(dtype)
         self.biases = np.zeros((1, output_dim), dtype=dtype)
@@ -26,9 +20,7 @@ class Dense:
             raise ValueError("Expected inputs shaped (samples, input_dim).")
         self.inputs = inputs
 
-        # (samples, input_dim) times (input_dim, output_dim).
         weighted_inputs = np.matmul(inputs, self.weights)
-        # Broadcasting adds the same bias row to each sample.
         outputs = weighted_inputs + self.biases
         return outputs
 
@@ -39,12 +31,10 @@ class Dense:
         if output_gradients.shape != expected_shape:
             raise ValueError("Dense gradient shape mismatch.")
 
-        # Sum each weight's contributions across samples.
         inputs_by_feature = self.inputs.T
         self.dweights = np.matmul(inputs_by_feature, output_gradients)
         self.dbiases = np.sum(output_gradients, axis=0, keepdims=True)
 
-        # Sum each input's contributions across output neurons.
         weights_by_neuron = self.weights.T
         input_gradients = np.matmul(output_gradients, weights_by_neuron)
         return input_gradients
@@ -64,7 +54,6 @@ class ReLU:
             raise RuntimeError("Call forward before backward.")
         if output_gradients.shape != self.positive_inputs.shape:
             raise ValueError("ReLU gradient shape mismatch.")
-        # A Boolean mask acts as 1 for positive inputs and 0 elsewhere.
         input_gradients = output_gradients * self.positive_inputs
         return input_gradients
 
@@ -101,7 +90,6 @@ class Reparameterization:
     def forward(self, mean, log_variance):
         if mean.shape != log_variance.shape:
             raise ValueError("Mean and log variance shapes must match.")
-        # All arrays here have shape (samples, latent_dim).
         log_standard_deviation = 0.5 * log_variance
         self.standard_deviation = np.exp(log_standard_deviation)
         self.epsilon = self.rng.standard_normal(mean.shape, dtype=mean.dtype)

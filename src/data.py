@@ -1,4 +1,3 @@
-"""Load compact arrays once; reshape and transpose with named dimensions."""
 import numpy as np
 
 
@@ -13,10 +12,8 @@ def decode_rows(rows, height, width):
         raise ValueError("Pixels must be between 0 and 255.")
 
     sample_count = rows.shape[0]
-    # EMNIST stores columns first: reshape as (sample, x, y), then swap x/y.
     columns_first = pixels.reshape(sample_count, width, height)
     upright_images = np.transpose(columns_first, axes=(0, 2, 1))
-    # A contiguous layout makes flattening a view rather than a fresh copy.
     images = np.ascontiguousarray(upright_images, dtype=np.float32)
     images /= 255.0
     return images, labels
@@ -47,7 +44,6 @@ def load_sample(path, sample_index, height, width):
 
 
 def flatten_images(images):
-    # asarray returns the existing array when its type already matches.
     images = np.asarray(images, dtype=np.float32)
     if images.ndim != 3:
         raise ValueError("Expected images shaped (samples, height, width).")

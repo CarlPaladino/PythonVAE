@@ -1,4 +1,3 @@
-"""Binary cross entropy plus beta * KL, averaged over samples."""
 import numpy as np
 
 
@@ -27,7 +26,6 @@ class VAELoss:
         positive_pixel_loss = targets * np.log(self.reconstruction)
         negative_pixel_loss = (1.0 - targets) * np.log(1.0 - self.reconstruction)
         pixel_losses = -(positive_pixel_loss + negative_pixel_loss)
-        # axis=1 sums pixels within each sample; mean averages samples.
         reconstruction_per_sample = np.sum(pixel_losses, axis=1)
         reconstruction_loss = np.mean(reconstruction_per_sample)
 
@@ -45,7 +43,6 @@ class VAELoss:
         negative_pixel_gradient = (1.0 - self.targets) / (1.0 - self.reconstruction)
         positive_pixel_gradient = self.targets / self.reconstruction
         reconstruction_gradients = negative_pixel_gradient - positive_pixel_gradient
-        # Preserve the reference loss: clipping is constant outside its interval.
         reconstruction_gradients *= self.unclipped_predictions
         reconstruction_gradients /= self.batch_size
 

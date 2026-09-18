@@ -73,7 +73,6 @@ class VAE:
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         layers = self.get_trainable_layers()
         if checkpoint_path.suffix == ".json":
-            # Optional human-readable export; list conversion occurs only here.
             saved_layers = []
             for layer in layers:
                 saved_layers.append({
@@ -99,7 +98,6 @@ class VAE:
             for index in range(len(layers)):
                 checkpoint[f"layer_{index}_weights"] = layers[index].weights
                 checkpoint[f"layer_{index}_biases"] = layers[index].biases
-            # Uncompressed arrays save faster than compressing every epoch.
             with checkpoint_path.open("wb") as output:
                 np.savez(output, **checkpoint)
 
@@ -120,7 +118,6 @@ class VAE:
                 saved_weights.append(np.asarray(saved_layer["weights"], dtype=self.dtype))
                 saved_biases.append(np.asarray(saved_layer["biases"], dtype=self.dtype))
         else:
-            # Also reads compressed .npz files from the original project.
             with np.load(checkpoint_path, allow_pickle=False) as checkpoint:
                 saved_input_dim = int(checkpoint["input_dim"])
                 saved_hidden_dims = checkpoint["hidden_dims"].tolist()
@@ -135,7 +132,6 @@ class VAE:
             or len(saved_weights) != len(layers)
         ):
             raise ValueError("Checkpoint architecture does not match.")
-        # Check every layer before changing the model.
         for index in range(len(layers)):
             layer = layers[index]
             if saved_weights[index].shape != layer.weights.shape:
@@ -164,7 +160,6 @@ class VAE:
         log_variance_gradients = log_variance_reconstruction + log_variance_kl_gradients
         mean_hidden = self.mean_dense.backward(mean_gradients)
         log_variance_hidden = self.log_variance_dense.backward(log_variance_gradients)
-        # Both encoder branches contribute to the shared hidden representation.
         values = mean_hidden + log_variance_hidden
         for index in range(len(self.encoder_dense_layers) - 1, -1, -1):
             values = self.encoder_activation_layers[index].backward(values)

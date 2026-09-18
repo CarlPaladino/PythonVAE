@@ -1,4 +1,3 @@
-"""Simple SVG figures: open the resulting file in a web browser."""
 from html import escape
 from pathlib import Path
 

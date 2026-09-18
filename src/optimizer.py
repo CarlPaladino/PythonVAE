@@ -1,4 +1,3 @@
-"""Adam updates entire parameter arrays with the same scalar equations."""
 import numpy as np
 
 
@@ -22,7 +21,6 @@ class Adam:
             self.bias_second_moments.append(np.zeros_like(layer.biases))
 
     def update_matrix(self, parameters, gradients, first_moments, second_moments):
-        # *= and += update the existing arrays, preserving the saved state.
         first_moments *= self.beta_1
         first_moments += (1.0 - self.beta_1) * gradients
         squared_gradients = gradients * gradients
@@ -39,7 +37,6 @@ class Adam:
         for layer in self.trainable_layers:
             if layer.dweights is None or layer.dbiases is None:
                 raise RuntimeError("Every layer must run backward before Adam.step.")
-        # One step per batch, shared by every parameter.
         self.step_number += 1
         self.first_correction = 1.0 - self.beta_1 ** self.step_number
         self.second_correction = 1.0 - self.beta_2 ** self.step_number

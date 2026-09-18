@@ -28,7 +28,6 @@ LATENT_SAMPLE_INDEX = 3000 #index of which latent vector to visualize
 
 
 def _number_slug(value):
-    """Format a number so it can safely be used in a file name."""
     return format(value, ".12g").replace("-", "m").replace(".", "p")
 
 
@@ -41,7 +40,6 @@ def make_configuration_name(
     batch_size,
     random_seed,
 ):
-    """Return a readable, stable name for a training configuration."""
     hidden_layers = ""
     for index in range(len(hidden_dims)):
         if index > 0:
@@ -59,8 +57,6 @@ def make_configuration_name(
     )
 
 
-# EPOCHS is intentionally omitted: increasing the training duration should keep
-# saving to the checkpoint for the same experiment configuration.
 CONFIGURATION_NAME = make_configuration_name(
     INPUT_DIM,
     HIDDEN_DIMS,
