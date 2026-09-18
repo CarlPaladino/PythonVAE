@@ -1,8 +1,8 @@
 TRAIN_PATH = "data/raw/emnist-balanced-train.csv"
 TEST_PATH = "data/raw/emnist-balanced-test.csv"
 CHECKPOINT_DIRECTORY = "checkpoints"
-GENERATED_IMAGE_PATH = "outputs/generated_samples.png"
-LATENT_VISUALIZATION_PATH = "outputs/latent_vector.png"
+GENERATED_IMAGE_PATH = "outputs/generated_samples.svg"
+LATENT_VISUALIZATION_PATH = "outputs/latent_vector.svg"
 
 IMAGE_HEIGHT = 28
 IMAGE_WIDTH = 28
@@ -19,11 +19,12 @@ LATENT_DIM = 24
 LEARNING_RATE = 0.001
 KL_BETA = 1.0
 
-EPOCHS = 100
+SAMPLES = None
+EPOCHS = 5
 
 GENERATION_ROWS = 5
 GENERATION_COLUMNS = 5
-LATENT_SAMPLE_INDEX = 0
+LATENT_SAMPLE_INDEX = 3000 #index of which latent vector to visualize
 
 
 def _number_slug(value):
@@ -41,7 +42,11 @@ def make_configuration_name(
     random_seed,
 ):
     """Return a readable, stable name for a training configuration."""
-    hidden_layers = "x".join(str(dimension) for dimension in hidden_dims)
+    hidden_layers = ""
+    for index in range(len(hidden_dims)):
+        if index > 0:
+            hidden_layers += "x"
+        hidden_layers += str(hidden_dims[index])
 
     return (
         f"input-{input_dim}"

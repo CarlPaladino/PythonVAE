@@ -1,57 +1,95 @@
+"""NumPy performs the arithmetic; named steps show the underlying equations.
+
+A batch has shape (samples, features). Parameters and activations stay as
+arrays throughout training. Use array.tolist() only when inspecting values.
+"""
 import numpy as np
-from numpy.typing import NDArray
+
 
 class Dense:
-    def __init__(self, input_dim, output_dim, rng):
+    def __init__(self, input_dim, output_dim, rng, dtype=np.float32):
+        if input_dim <= 0 or output_dim <= 0:
+            raise ValueError("Layer dimensions must be positive.")
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.inputs = None
         self.dweights = None
         self.dbiases = None
 
+        # One connection for each input feature / output neuron pair.
         weight_scale = np.sqrt(2.0 / input_dim)
-        self.weights = rng.normal(loc=0.0, scale=weight_scale, size=(input_dim, output_dim)).astype(np.float32)
-        self.biases = np.zeros((1, output_dim), dtype=np.float32)
+        self.weights = rng.normal(0.0, weight_scale, (input_dim, output_dim)).astype(dtype)
+        self.biases = np.zeros((1, output_dim), dtype=dtype)
 
     def forward(self, inputs):
+        if inputs.ndim != 2 or inputs.shape[1] != self.input_dim:
+            raise ValueError("Expected inputs shaped (samples, input_dim).")
         self.inputs = inputs
-        return np.dot(inputs, self.weights) + self.biases
 
-    def backward(self, dvalues):
-        self.dweights = np.dot(self.inputs.T, dvalues)
-        self.dbiases = np.sum(dvalues, axis=0, keepdims=True)
-        return np.dot(dvalues, self.weights.T)
+        # (samples, input_dim) times (input_dim, output_dim).
+        weighted_inputs = np.matmul(inputs, self.weights)
+        # Broadcasting adds the same bias row to each sample.
+        outputs = weighted_inputs + self.biases
+        return outputs
+
+    def backward(self, output_gradients):
+        if self.inputs is None:
+            raise RuntimeError("Call forward before backward.")
+        expected_shape = (self.inputs.shape[0], self.output_dim)
+        if output_gradients.shape != expected_shape:
+            raise ValueError("Dense gradient shape mismatch.")
+
+        # Sum each weight's contributions across samples.
+        inputs_by_feature = self.inputs.T
+        self.dweights = np.matmul(inputs_by_feature, output_gradients)
+        self.dbiases = np.sum(output_gradients, axis=0, keepdims=True)
+
+        # Sum each input's contributions across output neurons.
+        weights_by_neuron = self.weights.T
+        input_gradients = np.matmul(output_gradients, weights_by_neuron)
+        return input_gradients
+
 
 class ReLU:
     def __init__(self):
-        self.inputs = None
+        self.positive_inputs = None
 
     def forward(self, inputs):
-        self.inputs = inputs
-        return np.maximum(0, inputs)
+        self.positive_inputs = inputs > 0.0
+        outputs = np.maximum(inputs, 0.0)
+        return outputs
 
-    def backward(self, dvalues):
-        dinputs = dvalues.copy()
-        dinputs[self.inputs <= 0] = 0
-        return dinputs
+    def backward(self, output_gradients):
+        if self.positive_inputs is None:
+            raise RuntimeError("Call forward before backward.")
+        if output_gradients.shape != self.positive_inputs.shape:
+            raise ValueError("ReLU gradient shape mismatch.")
+        # A Boolean mask acts as 1 for positive inputs and 0 elsewhere.
+        input_gradients = output_gradients * self.positive_inputs
+        return input_gradients
+
 
 class Sigmoid:
     def __init__(self):
         self.output = None
-        
+
     def forward(self, inputs):
-        self.output = np.empty_like(inputs,dtype=np.result_type(inputs.dtype, np.float32))
-
-        positive = inputs >= 0
-        self.output[positive] = 1 / (1 + np.exp(-inputs[positive]))
-
-        exp_inputs = np.exp(inputs[~positive])
-        self.output[~positive] = exp_inputs / (1 + exp_inputs)
-
+        negative_magnitude = -np.abs(inputs)
+        exponential = np.exp(negative_magnitude)
+        denominator = 1.0 + exponential
+        positive_result = 1.0 / denominator
+        negative_result = exponential / denominator
+        self.output = np.where(inputs >= 0.0, positive_result, negative_result)
         return self.output
 
-    def backward(self, dvalues):
-        return dvalues * self.output * (1 - self.output)
+    def backward(self, output_gradients):
+        if self.output is None:
+            raise RuntimeError("Call forward before backward.")
+        if output_gradients.shape != self.output.shape:
+            raise ValueError("Sigmoid gradient shape mismatch.")
+        sigmoid_derivative = self.output * (1.0 - self.output)
+        input_gradients = output_gradients * sigmoid_derivative
+        return input_gradients
 
 
 class Reparameterization:
@@ -62,23 +100,21 @@ class Reparameterization:
 
     def forward(self, mean, log_variance):
         if mean.shape != log_variance.shape:
-            raise ValueError("mean and log_variance must have the same shape.")
-
-        mean_values = np.asarray(mean, dtype=np.float32)
-        log_variance_values = np.asarray(log_variance, dtype=np.float32)
-
-        self.standard_deviation = np.exp(0.5 * log_variance_values)
-        self.epsilon = self.rng.standard_normal(mean_values.shape)
-        self.epsilon = self.epsilon.astype(np.float32)
-
+            raise ValueError("Mean and log variance shapes must match.")
+        # All arrays here have shape (samples, latent_dim).
+        log_standard_deviation = 0.5 * log_variance
+        self.standard_deviation = np.exp(log_standard_deviation)
+        self.epsilon = self.rng.standard_normal(mean.shape, dtype=mean.dtype)
         scaled_noise = self.standard_deviation * self.epsilon
-        latent_values = mean_values + scaled_noise
+        latent_values = mean + scaled_noise
         return latent_values
 
     def backward(self, latent_gradients):
-        gradient_values = np.asarray(latent_gradients, dtype=np.float32)
-
-        mean_gradients = gradient_values.copy()
-        log_variance_gradients = gradient_values * self.epsilon * 0.5 * self.standard_deviation
-
+        if self.epsilon is None:
+            raise RuntimeError("Call forward before backward.")
+        if latent_gradients.shape != self.epsilon.shape:
+            raise ValueError("Latent gradient shape mismatch.")
+        mean_gradients = latent_gradients.copy()
+        deviation_gradients = latent_gradients * self.epsilon
+        log_variance_gradients = deviation_gradients * 0.5 * self.standard_deviation
         return mean_gradients, log_variance_gradients

@@ -1,3 +1,4 @@
+"""Binary cross entropy plus beta * KL, averaged over samples."""
 import numpy as np
 
 
@@ -5,65 +6,49 @@ class VAELoss:
     def __init__(self, beta=1.0):
         self.beta = beta
         self.targets = None
-        self.reconstruction = None
-        self.mean = None
-        self.log_variance = None
-        self.batch_size = None
 
     def forward(self, targets, reconstruction, mean, log_variance):
-        if targets.shape != reconstruction.shape:
-            raise ValueError(
-                "targets and reconstruction must have the same shape."
-            )
+        if targets.ndim != 2 or targets.shape != reconstruction.shape:
+            raise ValueError("Targets and reconstruction must have matching matrix shapes.")
+        if mean.ndim != 2 or mean.shape != log_variance.shape:
+            raise ValueError("Mean and log variance must have matching matrix shapes.")
+        if targets.shape[0] == 0 or targets.shape[0] != mean.shape[0]:
+            raise ValueError("Expected matching, nonempty batches.")
 
-        if mean.shape != log_variance.shape:
-            raise ValueError(
-                "mean and log_variance must have the same shape."
-            )
+        self.targets = targets
+        self.mean = mean
+        self.batch_size = targets.shape[0]
+        self.variance = np.exp(log_variance)
+        self.reconstruction = np.clip(reconstruction, 1e-7, 1.0 - 1e-7)
+        above_lower_bound = reconstruction > 1e-7
+        below_upper_bound = reconstruction < 1.0 - 1e-7
+        self.unclipped_predictions = above_lower_bound & below_upper_bound
 
-        if targets.shape[0] != mean.shape[0]:
-            raise ValueError(
-                "The reconstruction and latent values must use the same batch size."
-            )
+        positive_pixel_loss = targets * np.log(self.reconstruction)
+        negative_pixel_loss = (1.0 - targets) * np.log(1.0 - self.reconstruction)
+        pixel_losses = -(positive_pixel_loss + negative_pixel_loss)
+        # axis=1 sums pixels within each sample; mean averages samples.
+        reconstruction_per_sample = np.sum(pixel_losses, axis=1)
+        reconstruction_loss = np.mean(reconstruction_per_sample)
 
-        if targets.shape[0] == 0:
-            raise ValueError("The batch must contain at least one sample.")
-
-        self.targets = np.asarray(targets, dtype=np.float32)
-        self.mean = np.asarray(mean, dtype=np.float32)
-        self.log_variance = np.asarray(log_variance, dtype=np.float32)
-        self.batch_size = self.targets.shape[0]
-
-        reconstruction_values = np.asarray(reconstruction, dtype=np.float32)
-        self.reconstruction = np.clip(reconstruction_values, 1e-7, 1.0 - 1e-7)
-
-        positive_pixel_loss = self.targets * np.log(self.reconstruction)
-        negative_pixel_loss = (1.0 - self.targets) * np.log(1.0 - self.reconstruction)
-        pixel_loss = -(positive_pixel_loss + negative_pixel_loss)
-        reconstruction_loss_per_sample = np.sum(pixel_loss, axis=1)
-
-        variance = np.exp(self.log_variance)
-        kl_loss_per_dimension = (1.0 + self.log_variance - self.mean * self.mean - variance)
-        kl_loss_per_sample = -0.5 * np.sum(kl_loss_per_dimension, axis=1)
-
-        reconstruction_loss = np.mean(reconstruction_loss_per_sample)
-        kl_loss = np.mean(kl_loss_per_sample)
+        squared_mean = mean * mean
+        kl_per_component = 0.5 * (squared_mean + self.variance - 1.0 - log_variance)
+        kl_per_sample = np.sum(kl_per_component, axis=1)
+        kl_loss = np.mean(kl_per_sample)
         total_loss = reconstruction_loss + self.beta * kl_loss
-
         return float(total_loss), float(reconstruction_loss), float(kl_loss)
 
     def backward(self):
         if self.targets is None:
-            raise RuntimeError("VAELoss.forward() must be called before backward().")
+            raise RuntimeError("Call forward before backward.")
 
-        reconstruction_gradients = ((1.0 - self.targets) / (1.0 - self.reconstruction) - self.targets / self.reconstruction)
-        reconstruction_gradients = reconstruction_gradients / self.batch_size
+        negative_pixel_gradient = (1.0 - self.targets) / (1.0 - self.reconstruction)
+        positive_pixel_gradient = self.targets / self.reconstruction
+        reconstruction_gradients = negative_pixel_gradient - positive_pixel_gradient
+        # Preserve the reference loss: clipping is constant outside its interval.
+        reconstruction_gradients *= self.unclipped_predictions
+        reconstruction_gradients /= self.batch_size
 
-        mean_gradients = self.beta * self.mean
-        mean_gradients = mean_gradients / self.batch_size
-
-        variance = np.exp(self.log_variance)
-        log_variance_gradients = 0.5 * self.beta * (variance - 1.0)
-        log_variance_gradients = log_variance_gradients / self.batch_size
-
-        return (reconstruction_gradients, mean_gradients, log_variance_gradients)
+        mean_gradients = self.beta * self.mean / self.batch_size
+        log_variance_gradients = 0.5 * self.beta * (self.variance - 1.0) / self.batch_size
+        return reconstruction_gradients, mean_gradients, log_variance_gradients
