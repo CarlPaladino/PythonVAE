@@ -2,8 +2,7 @@ import numpy as np
 
 
 class Adam:
-    def __init__(self, trainable_layers, learning_rate=0.001,
-                 beta_1=0.9, beta_2=0.999, epsilon=1e-7):
+    def __init__(self, trainable_layers, learning_rate=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-7):
         self.trainable_layers = trainable_layers
         self.learning_rate = learning_rate
         self.beta_1 = beta_1
@@ -38,13 +37,9 @@ class Adam:
             if layer.dweights is None or layer.dbiases is None:
                 raise RuntimeError("Every layer must run backward before Adam.step.")
         self.step_number += 1
-        self.first_correction = 1.0 - self.beta_1 ** self.step_number
-        self.second_correction = 1.0 - self.beta_2 ** self.step_number
+        self.first_correction = 1.0 - self.beta_1**self.step_number
+        self.second_correction = 1.0 - self.beta_2**self.step_number
         for index in range(len(self.trainable_layers)):
             layer = self.trainable_layers[index]
-            self.update_matrix(layer.weights, layer.dweights,
-                               self.weight_first_moments[index],
-                               self.weight_second_moments[index])
-            self.update_matrix(layer.biases, layer.dbiases,
-                               self.bias_first_moments[index],
-                               self.bias_second_moments[index])
+            self.update_matrix(layer.weights, layer.dweights, self.weight_first_moments[index], self.weight_second_moments[index])
+            self.update_matrix(layer.biases, layer.dbiases, self.bias_first_moments[index], self.bias_second_moments[index])

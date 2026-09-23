@@ -35,8 +35,7 @@ def load_images(path, height, width, limit=None):
 def load_sample(path, sample_index, height, width):
     if sample_index < 0:
         raise ValueError("Sample index cannot be negative.")
-    rows = np.loadtxt(path, delimiter=",", dtype=np.float32,
-                      ndmin=2, skiprows=sample_index, max_rows=1)
+    rows = np.loadtxt(path, delimiter=",", dtype=np.float32, ndmin=2, skiprows=sample_index, max_rows=1)
     if rows.size == 0:
         raise IndexError("Sample index is outside the dataset.")
     images, labels = decode_rows(rows, height, width)

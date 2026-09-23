@@ -11,10 +11,7 @@ def image_elements(image, left, top, scale=5):
     for y in range(len(image)):
         for x in range(len(image[y])):
             shade = round(max(0.0, min(1.0, image[y][x])) * 255)
-            elements.append(
-                f'<rect x="{left + x * scale}" y="{top + y * scale}" '
-                f'width="{scale}" height="{scale}" fill="rgb({shade},{shade},{shade})"/>'
-            )
+            elements.append(f'<rect x="{left + x * scale}" y="{top + y * scale}" width="{scale}" height="{scale}" fill="rgb({shade},{shade},{shade})"/>')
     return elements
 
 
@@ -63,9 +60,6 @@ def bar_elements(values, left, top, title):
         if value >= 0:
             y = baseline - height
         x = left + index * bar_width
-        elements.append(
-            f'<rect x="{x}" y="{y}" width="{bar_width * 0.8}" height="{height}" fill="steelblue">'
-            f'<title>Component {index + 1}: {value:.6g}</title></rect>'
-        )
+        elements.append(f'<rect x="{x}" y="{y}" width="{bar_width * 0.8}" height="{height}" fill="steelblue"><title>Component {index + 1}: {value:.6g}</title></rect>')
         elements.append(text(x, top + 195, index + 1))
     return elements
