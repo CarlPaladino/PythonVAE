@@ -3,10 +3,13 @@ from pathlib import Path
 
 import numpy as np
 
+from proposals.vae_speedup.plots import save_reconstructions
+from proposals.vae_speedup.vae import initialize_decoder, initialize_encoder, train_step
 from src.checkpoints import save_checkpoint
 from src.data import load_images
-from src.plots import save_reconstructions
-from src.vae import initialize_decoder, initialize_encoder, train_step
+
+# from src.plots import save_reconstructions
+# from src.vae import initialize_decoder, initialize_encoder, train_step
 
 
 def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
@@ -29,13 +32,15 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
         sample_count = 0
 
         for sample_index in sample_order:
-            print(sample_count)
+            print(f"\rSample {sample_count}/{len(inputs)}", end="", flush=True)
             sample_count += 1
             total_loss, pixel_loss, latent_loss = train_step(inputs[sample_index], encoder, decoder, rng, learning_rate, beta)
 
             total_loss_sum += total_loss
             pixel_loss_sum += pixel_loss
             latent_loss_sum += latent_loss
+
+        print()
 
         average_total = total_loss_sum / sample_count
         average_pixel = pixel_loss_sum / sample_count
@@ -54,7 +59,7 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
 
 def main():
     random_seed = 9
-    sample_limit = 5
+    sample_limit = None
     epochs = 50
     learning_rate = 0.001
     beta = 1.0

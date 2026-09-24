@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 import numpy as np
 
 
@@ -22,18 +24,8 @@ def convolve_image(image, kernel, bias=0.0, stride=1, padding=0):
 
 
 def pad_image(image, padding):
-    height, width = image.shape
+    return np.pad(image, ((padding, padding), (padding, padding)))
 
-    padded_height = height + 2 * padding
-    padded_width = width + 2 * padding
-
-    padded_image = np.zeros((padded_height, padded_width), dtype=image.dtype)
-
-    for row in range(height):
-        for column in range(width):
-            padded_image[row + padding, column + padding] = image[row, column]
-
-    return padded_image
 
 
 def apply_kernel(image, kernel, start_row, start_column, bias=0.0):
@@ -62,41 +54,18 @@ def convolution_output_size(input_size, kernel_size, stride=1, padding=0):
 
 
 def relu(feature_map):
-    height, width = feature_map.shape
-    output = np.zeros((height, width), dtype=feature_map.dtype)
+    return np.maximum(feature_map, 0)
 
-    for row in range(height):
-        for column in range(width):
-            value = feature_map[row, column]
-
-            if value > 0:
-                output[row, column] = value
-
-    return output
 
 
 def flatten(feature_maps):
-    channels, height, width = feature_maps.shape
-    output = np.empty(channels * height * width, dtype=feature_maps.dtype)
+    return feature_maps.reshape(-1).copy()
 
-    index = 0
-
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                output[index] = feature_maps[channel, row, column]
-                index += 1
-
-    return output
 
 
 def dense(inputs, weights, biases):
-    output = np.matmul(inputs, weights)
+    return np.matmul(inputs, weights) + biases
 
-    for neuron in range(len(biases)):
-        output[neuron] += biases[neuron]
-
-    return output
 
 
 def initialize_dense(input_count, neuron_count, rng):
@@ -120,157 +89,72 @@ def initialize_convolution(input_channels, filter_count, kernel_size, rng):
     return kernels, biases
 
 
-def convolution(inputs, kernels, biases, stride=1, padding=0):
+def convolution(inputs, kernels, biases, stride=1, padding=0, cache=None):
     channels, height, width = inputs.shape
     filter_count, _, kernel_height, kernel_width = kernels.shape
     output_height = convolution_output_size(height, kernel_height, stride, padding)
     output_width = convolution_output_size(width, kernel_width, stride, padding)
-
     patches = image_to_patches(inputs, kernel_height, kernel_width, stride, padding)
     filter_weights = kernels_to_matrix(kernels)
     weighted_sums = np.matmul(patches, filter_weights)
-
-    output = np.empty((filter_count, output_height, output_width))
-    position = 0
-    for row in range(output_height):
-        for column in range(output_width):
-            for filter_index in range(filter_count):
-                output[filter_index, row, column] = weighted_sums[position, filter_index] + biases[filter_index]
-            position += 1
-
-    return output
+    weighted_sums += biases
+    if cache is not None:
+        cache["patches"] = patches
+    return weighted_sums.T.reshape(filter_count, output_height, output_width)
 
 
 
 def activate_feature_maps(feature_maps):
-    channels, height, width = feature_maps.shape
-    output = np.empty(feature_maps.shape, dtype=feature_maps.dtype)
+    return np.maximum(feature_maps, 0)
 
-    for channel in range(channels):
-        activated_map = relu(feature_maps[channel])
-
-        for row in range(height):
-            for column in range(width):
-                output[channel, row, column] = activated_map[row, column]
-
-    return output
 
 
 def sample_latent(mean, log_variance, rng):
-    latent_size = len(mean)
-
-    noise = rng.normal(0.0, 1.0, size=latent_size)
-    latent = np.empty(latent_size)
-
-    for index in range(latent_size):
-        standard_deviation = np.exp(0.5 * log_variance[index])
-
-        latent[index] = mean[index] + standard_deviation * noise[index]
-
+    noise = rng.normal(0.0, 1.0, size=len(mean))
+    latent = mean + np.exp(0.5 * log_variance) * noise
     return latent, noise
 
 
+
 def unflatten(values, channels, height, width):
-    output = np.empty((channels, height, width), dtype=values.dtype)
+    return values.reshape(channels, height, width).copy()
 
-    index = 0
-
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                output[channel, row, column] = values[index]
-                index += 1
-
-    return output
 
 
 def upsample(feature_maps, scale=2):
-    channels, height, width = feature_maps.shape
+    return np.repeat(np.repeat(feature_maps, scale, axis=1), scale, axis=2)
 
-    output_height = height * scale
-    output_width = width * scale
-
-    output = np.empty((channels, output_height, output_width), dtype=feature_maps.dtype)
-
-    for channel in range(channels):
-        for row in range(output_height):
-            for column in range(output_width):
-                input_row = row // scale
-                input_column = column // scale
-
-                output[channel, row, column] = feature_maps[channel, input_row, input_column]
-
-    return output
 
 
 def sigmoid(feature_maps):
-    channels, height, width = feature_maps.shape
-    output = np.empty(feature_maps.shape, dtype=float)
+    exponential = np.exp(-np.abs(feature_maps))
+    return np.where(
+        feature_maps >= 0,
+        1.0 / (1.0 + exponential),
+        exponential / (1.0 + exponential)
+    )
 
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                value = feature_maps[channel, row, column]
-
-                if value >= 0:
-                    output[channel, row, column] = 1.0 / (1.0 + np.exp(-value))
-                else:
-                    exponential = np.exp(value)
-                    output[channel, row, column] = exponential / (1.0 + exponential)
-
-    return output
 
 
 def reconstruction_loss(original, reconstruction):
-    channels, height, width = original.shape
-    total = 0.0
+    difference = reconstruction - original
+    return 0.5 * np.sum(difference * difference)
 
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                difference = reconstruction[channel, row, column] - original[channel, row, column]
-
-                total += 0.5 * difference * difference
-
-    return total
 
 
 def kl_loss(mean, log_variance):
-    total = 0.0
+    return 0.5 * np.sum(mean * mean + np.exp(log_variance) - 1.0 - log_variance)
 
-    for index in range(len(mean)):
-        variance = np.exp(log_variance[index])
-
-        total += 0.5 * (mean[index] * mean[index] + variance - 1.0 - log_variance[index])
-
-    return total
 
 
 def reconstruction_loss_backward(original, reconstruction):
-    channels, height, width = original.shape
-    gradients = np.empty(original.shape, dtype=float)
+    return reconstruction - original
 
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                gradients[channel, row, column] = reconstruction[channel, row, column] - original[channel, row, column]
-
-    return gradients
 
 
 def sigmoid_backward(sigmoid_output, output_gradients):
-    channels, height, width = sigmoid_output.shape
-    input_gradients = np.empty(sigmoid_output.shape, dtype=float)
+    return output_gradients * sigmoid_output * (1.0 - sigmoid_output)
 
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                value = sigmoid_output[channel, row, column]
-                slope = value * (1.0 - value)
-
-                input_gradients[channel, row, column] = output_gradients[channel, row, column] * slope
-
-    return input_gradients
 
 
 def apply_kernel_backward(image, kernel, start_row, start_column, output_gradient):
@@ -335,149 +219,72 @@ def convolve_image_backward(image, kernel, output_gradients, stride=1, padding=0
 
 def upsample_backward(output_gradients, scale=2):
     channels, output_height, output_width = output_gradients.shape
+    blocks = output_gradients.reshape(
+        channels, output_height // scale, scale, output_width // scale, scale
+    )
+    return np.sum(blocks, axis=(2, 4))
 
-    input_height = output_height // scale
-    input_width = output_width // scale
-
-    input_gradients = np.zeros((channels, input_height, input_width), dtype=float)
-
-    for channel in range(channels):
-        for row in range(output_height):
-            for column in range(output_width):
-                input_row = row // scale
-                input_column = column // scale
-
-                input_gradients[channel, input_row, input_column] += output_gradients[channel, row, column]
-
-    return input_gradients
 
 
 def dense_backward(inputs, weights, output_gradients):
-    input_gradients = np.matmul(output_gradients, weights.T)
-    weight_gradients = np.outer(inputs, output_gradients)
-    bias_gradients = output_gradients.copy()
-    return input_gradients, weight_gradients, bias_gradients
+    return (
+        np.matmul(output_gradients, weights.T),
+        np.outer(inputs, output_gradients),
+        output_gradients.copy()
+    )
 
 
 
 def relu_backward(inputs, output_gradients):
-    height, width = inputs.shape
-    input_gradients = np.empty(inputs.shape, dtype=float)
+    return np.where(inputs > 0, output_gradients, 0.0)
 
-    for row in range(height):
-        for column in range(width):
-            if inputs[row, column] > 0:
-                input_gradients[row, column] = output_gradients[row, column]
-            else:
-                input_gradients[row, column] = 0.0
-
-    return input_gradients
 
 
 def activate_feature_maps_backward(inputs, output_gradients):
-    channels, height, width = inputs.shape
-    input_gradients = np.empty(inputs.shape, dtype=float)
-
-    for channel in range(channels):
-        channel_gradients = relu_backward(inputs[channel], output_gradients[channel])
-
-        for row in range(height):
-            for column in range(width):
-                input_gradients[channel, row, column] = channel_gradients[row, column]
-
-    return input_gradients
+    return np.where(inputs > 0, output_gradients, 0.0)
 
 
-def convolution_backward(inputs, kernels, output_gradients, stride=1, padding=0):
+
+def convolution_backward(inputs, kernels, output_gradients, stride=1, padding=0, cache=None):
     channels, height, width = inputs.shape
     filter_count, _, kernel_height, kernel_width = kernels.shape
-    _, output_height, output_width = output_gradients.shape
+    if cache is None:
+        patches = image_to_patches(inputs, kernel_height, kernel_width, stride, padding)
+    else:
+        patches = cache["patches"]
 
-    patches = image_to_patches(inputs, kernel_height, kernel_width, stride, padding)
     filter_weights = kernels_to_matrix(kernels)
-    gradient_matrix = np.empty((output_height * output_width, filter_count))
-    bias_gradients = np.zeros(filter_count)
-
-    position = 0
-    for row in range(output_height):
-        for column in range(output_width):
-            for filter_index in range(filter_count):
-                gradient = output_gradients[filter_index, row, column]
-                gradient_matrix[position, filter_index] = gradient
-                bias_gradients[filter_index] += gradient
-            position += 1
-
-    # Add contributions from all spatial positions for each weight.
+    gradient_matrix = output_gradients.reshape(filter_count, -1).T
     weight_matrix_gradients = np.matmul(patches.T, gradient_matrix)
-    # Add contributions from all filters for each value in a patch.
     patch_gradients = np.matmul(gradient_matrix, filter_weights.T)
+    bias_gradients = np.sum(gradient_matrix, axis=0)
+    kernel_gradients = weight_matrix_gradients.T.reshape(kernels.shape)
 
-    kernel_gradients = np.empty(kernels.shape)
-    for filter_index in range(filter_count):
-        feature = 0
-        for channel in range(channels):
-            for row in range(kernel_height):
-                for column in range(kernel_width):
-                    kernel_gradients[filter_index, channel, row, column] = weight_matrix_gradients[feature, filter_index]
-                    feature += 1
-
-    padded_gradients = np.zeros((channels, height + 2 * padding, width + 2 * padding))
-    position = 0
-    for output_row in range(output_height):
-        for output_column in range(output_width):
-            feature = 0
-            for channel in range(channels):
-                for kernel_row in range(kernel_height):
-                    for kernel_column in range(kernel_width):
-                        row = output_row * stride + kernel_row
-                        column = output_column * stride + kernel_column
-                        # Overlapping patches must add into the same input pixel.
-                        padded_gradients[channel, row, column] += patch_gradients[position, feature]
-                        feature += 1
-            position += 1
-
-    input_gradients = np.empty(inputs.shape)
-    for channel in range(channels):
-        for row in range(height):
-            for column in range(width):
-                input_gradients[channel, row, column] = padded_gradients[channel, row + padding, column + padding]
-
+    indices, original_indices = _patch_indices(
+        channels, height, width, kernel_height, kernel_width, stride, padding
+    )
+    padded_gradients = np.zeros(channels * (height + 2 * padding) * (width + 2 * padding))
+    # add.at correctly sums repeated indices from overlapping patches.
+    np.add.at(padded_gradients, indices.ravel(), patch_gradients.ravel())
+    input_gradients = np.take(padded_gradients, original_indices)
     return input_gradients, kernel_gradients, bias_gradients
 
 
 
 def sample_latent_backward(log_variance, noise, latent_gradients):
-    latent_size = len(log_variance)
+    return (
+        latent_gradients.copy(),
+        latent_gradients * noise * 0.5 * np.exp(0.5 * log_variance)
+    )
 
-    mean_gradients = np.empty(latent_size)
-    log_variance_gradients = np.empty(latent_size)
-
-    for index in range(latent_size):
-        standard_deviation = np.exp(0.5 * log_variance[index])
-
-        mean_gradients[index] = latent_gradients[index]
-
-        log_variance_gradients[index] = latent_gradients[index] * noise[index] * 0.5 * standard_deviation
-
-    return mean_gradients, log_variance_gradients
 
 
 def kl_loss_backward(mean, log_variance):
-    latent_size = len(mean)
+    return mean.copy(), 0.5 * (np.exp(log_variance) - 1.0)
 
-    mean_gradients = np.empty(latent_size)
-    log_variance_gradients = np.empty(latent_size)
-
-    for index in range(latent_size):
-        mean_gradients[index] = mean[index]
-
-        log_variance_gradients[index] = 0.5 * (np.exp(log_variance[index]) - 1.0)
-
-    return mean_gradients, log_variance_gradients
 
 
 def update_parameter(parameter, gradients, learning_rate):
-    # Elementwise SGD; update the existing array rather than replacing it.
     np.subtract(parameter, learning_rate * gradients, out=parameter)
 
 
@@ -509,9 +316,10 @@ def encode(inputs, encoder):
     layer_cache = []
 
     for layer in encoder["layers"]:
-        feature_maps = convolution(current, layer["kernels"], layer["biases"], stride=layer["stride"], padding=layer["padding"])
+        convolution_cache = {}
+        feature_maps = convolution(current, layer["kernels"], layer["biases"], stride=layer["stride"], padding=layer["padding"], cache=convolution_cache)
 
-        layer_cache.append({"inputs": current, "feature_maps": feature_maps})
+        layer_cache.append({"inputs": current, "feature_maps": feature_maps, "convolution": convolution_cache})
 
         current = activate_feature_maps(feature_maps)
 
@@ -568,9 +376,10 @@ def decode(latent, decoder):
 
         enlarged_maps = upsample(current, scale=layer["scale"])
 
-        feature_maps = convolution(enlarged_maps, layer["kernels"], layer["biases"], stride=1, padding=layer["padding"])
+        convolution_cache = {}
+        feature_maps = convolution(enlarged_maps, layer["kernels"], layer["biases"], stride=1, padding=layer["padding"], cache=convolution_cache)
 
-        layer_cache.append({"inputs": enlarged_maps, "feature_maps": feature_maps})
+        layer_cache.append({"inputs": enlarged_maps, "feature_maps": feature_maps, "convolution": convolution_cache})
 
         if index == len(decoder["layers"]) - 1:
             current = sigmoid(feature_maps)
@@ -595,7 +404,7 @@ def decode_backward(reconstruction_gradients, decoder, cache):
         else:
             feature_gradients = activate_feature_maps_backward(saved["feature_maps"], current_gradients)
 
-        enlarged_gradients, kernel_gradients, bias_gradients = convolution_backward(saved["inputs"], layer["kernels"], feature_gradients, stride=1, padding=layer["padding"])
+        enlarged_gradients, kernel_gradients, bias_gradients = convolution_backward(saved["inputs"], layer["kernels"], feature_gradients, stride=1, padding=layer["padding"], cache=saved.get("convolution"))
 
         layer_gradients[index] = {"kernels": kernel_gradients, "biases": bias_gradients}
 
@@ -633,7 +442,7 @@ def encode_backward(mean_gradients, log_variance_gradients, encoder, cache):
 
         convolution_gradients = activate_feature_maps_backward(saved["feature_maps"], current_gradients)
 
-        current_gradients, kernel_gradients, bias_gradients = convolution_backward(saved["inputs"], layer["kernels"], convolution_gradients, stride=layer["stride"], padding=layer["padding"])
+        current_gradients, kernel_gradients, bias_gradients = convolution_backward(saved["inputs"], layer["kernels"], convolution_gradients, stride=layer["stride"], padding=layer["padding"], cache=saved.get("convolution"))
 
         layer_gradients[index] = {"kernels": kernel_gradients, "biases": bias_gradients}
 
@@ -704,44 +513,49 @@ def train_step(inputs, encoder, decoder, rng, learning_rate, beta):
     return total_loss, pixel_loss, latent_loss
 
 
-def image_to_patches(inputs, kernel_height, kernel_width, stride, padding):
-    """One row per output position, one column per channel/kernel coordinate."""
-    channels, height, width = inputs.shape
+@lru_cache(maxsize=64)
+def _patch_indices(channels, height, width, kernel_height, kernel_width, stride, padding):
+    """Cache coordinates, not image values. Loops run once per layer shape."""
     output_height = convolution_output_size(height, kernel_height, stride, padding)
     output_width = convolution_output_size(width, kernel_width, stride, padding)
-    patch_size = channels * kernel_height * kernel_width
-    patches = np.empty((output_height * output_width, patch_size))
-
-    for channel in range(channels):
-        padded = pad_image(inputs[channel], padding)
-        position = 0
-        for output_row in range(output_height):
-            for output_column in range(output_width):
-                feature = channel * kernel_height * kernel_width
+    padded_height = height + 2 * padding
+    padded_width = width + 2 * padding
+    indices = np.empty((output_height * output_width, channels * kernel_height * kernel_width), dtype=np.intp)
+    position = 0
+    for output_row in range(output_height):
+        for output_column in range(output_width):
+            feature = 0
+            for channel in range(channels):
                 for kernel_row in range(kernel_height):
                     for kernel_column in range(kernel_width):
                         row = output_row * stride + kernel_row
                         column = output_column * stride + kernel_column
-                        patches[position, feature] = padded[row, column]
+                        indices[position, feature] = (channel * padded_height + row) * padded_width + column
                         feature += 1
-                position += 1
+            position += 1
 
-    return patches
+    # Coordinates selecting the original image from its padded gradient.
+    original_indices = np.empty((channels, height, width), dtype=np.intp)
+    for channel in range(channels):
+        for row in range(height):
+            for column in range(width):
+                original_indices[channel, row, column] = (
+                    (channel * padded_height + row + padding) * padded_width
+                    + column + padding
+                )
+    return indices, original_indices
+
+
+
+def image_to_patches(inputs, kernel_height, kernel_width, stride, padding):
+    channels, height, width = inputs.shape
+    indices, _ = _patch_indices(channels, height, width, kernel_height, kernel_width, stride, padding)
+    padded = np.pad(inputs, ((0, 0), (padding, padding), (padding, padding)))
+    return np.take(padded, indices)
 
 
 
 def kernels_to_matrix(kernels):
-    """Each column contains one filter, in the same order as a patch."""
-    filters, channels, kernel_height, kernel_width = kernels.shape
-    matrix = np.empty((channels * kernel_height * kernel_width, filters))
-
-    for filter_index in range(filters):
-        feature = 0
-        for channel in range(channels):
-            for row in range(kernel_height):
-                for column in range(kernel_width):
-                    matrix[feature, filter_index] = kernels[filter_index, channel, row, column]
-                    feature += 1
-
-    return matrix
+    filter_count = kernels.shape[0]
+    return kernels.reshape(filter_count, -1).T
 
