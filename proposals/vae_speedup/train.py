@@ -9,7 +9,7 @@ from src.plots import save_reconstructions
 from src.vae import initialize_decoder, initialize_encoder, train_step
 
 
-def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
+def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta, plot_every=10):
     sample_count = len(inputs)
     history = []
     run_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -26,11 +26,7 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
         pixel_loss_sum = 0.0
         latent_loss_sum = 0.0
 
-        sample_count = 0
-
         for sample_index in sample_order:
-            print(sample_count)
-            sample_count += 1
             total_loss, pixel_loss, latent_loss = train_step(inputs[sample_index], encoder, decoder, rng, learning_rate, beta)
 
             total_loss_sum += total_loss
@@ -47,7 +43,8 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
 
         epoch_name = f"epoch-{epoch + 1:03d}"
         save_checkpoint(checkpoint_directory / f"{epoch_name}.pkl", encoder, decoder, rng, epoch + 1, history, learning_rate, beta)
-        save_reconstructions(output_directory / f"{epoch_name}.svg", inputs, encoder, decoder, epoch + 1)
+        if epoch == 0 or (epoch + 1) % plot_every == 0 or epoch + 1 == epochs:
+            save_reconstructions(output_directory / f"{epoch_name}.svg", inputs, encoder, decoder, epoch + 1)
 
     return history
 

@@ -1,0 +1,241 @@
+--- src/vae.py
++++ proposed/src/vae.py
+@@ -121,27 +121,25 @@
+ 
+ 
+ def convolution(inputs, kernels, biases, stride=1, padding=0):
+-    input_channels, height, width = inputs.shape
++    channels, height, width = inputs.shape
+     filter_count, _, kernel_height, kernel_width = kernels.shape
+-
+     output_height = convolution_output_size(height, kernel_height, stride, padding)
+     output_width = convolution_output_size(width, kernel_width, stride, padding)
+ 
+-    output = np.zeros((filter_count, output_height, output_width))
+-
+-    for filter_index in range(filter_count):
+-        for channel in range(input_channels):
+-            channel_output = convolve_image(inputs[channel], kernels[filter_index, channel], bias=0.0, stride=stride, padding=padding)
+-
+-            for row in range(output_height):
+-                for column in range(output_width):
+-                    output[filter_index, row, column] += channel_output[row, column]
+-
+-        for row in range(output_height):
+-            for column in range(output_width):
+-                output[filter_index, row, column] += biases[filter_index]
+-
+-    return output
++    patches = image_to_patches(inputs, kernel_height, kernel_width, stride, padding)
++    filter_weights = kernels_to_matrix(kernels)
++    weighted_sums = np.matmul(patches, filter_weights)
++
++    output = np.empty((filter_count, output_height, output_width))
++    position = 0
++    for row in range(output_height):
++        for column in range(output_width):
++            for filter_index in range(filter_count):
++                output[filter_index, row, column] = weighted_sums[position, filter_index] + biases[filter_index]
++            position += 1
++
++    return output
++
+ 
+ 
+ def activate_feature_maps(feature_maps):
+@@ -355,22 +353,11 @@
+ 
+ 
+ def dense_backward(inputs, weights, output_gradients):
+-    input_count, neuron_count = weights.shape
+-
+-    input_gradients = np.zeros(input_count)
+-    weight_gradients = np.empty(weights.shape, dtype=float)
+-    bias_gradients = np.empty(neuron_count)
+-
+-    for neuron in range(neuron_count):
+-        gradient = output_gradients[neuron]
+-        bias_gradients[neuron] = gradient
+-
+-        for input_index in range(input_count):
+-            weight_gradients[input_index, neuron] = inputs[input_index] * gradient
+-
+-            input_gradients[input_index] += weights[input_index, neuron] * gradient
+-
++    input_gradients = np.matmul(output_gradients, weights.T)
++    weight_gradients = np.outer(inputs, output_gradients)
++    bias_gradients = output_gradients.copy()
+     return input_gradients, weight_gradients, bias_gradients
++
+ 
+ 
+ def relu_backward(inputs, output_gradients):
+@@ -402,31 +389,61 @@
+ 
+ 
+ def convolution_backward(inputs, kernels, output_gradients, stride=1, padding=0):
+-    input_channels, height, width = inputs.shape
++    channels, height, width = inputs.shape
+     filter_count, _, kernel_height, kernel_width = kernels.shape
+     _, output_height, output_width = output_gradients.shape
+ 
+-    input_gradients = np.zeros(inputs.shape, dtype=float)
+-    kernel_gradients = np.empty(kernels.shape, dtype=float)
++    patches = image_to_patches(inputs, kernel_height, kernel_width, stride, padding)
++    filter_weights = kernels_to_matrix(kernels)
++    gradient_matrix = np.empty((output_height * output_width, filter_count))
+     bias_gradients = np.zeros(filter_count)
+ 
++    position = 0
++    for row in range(output_height):
++        for column in range(output_width):
++            for filter_index in range(filter_count):
++                gradient = output_gradients[filter_index, row, column]
++                gradient_matrix[position, filter_index] = gradient
++                bias_gradients[filter_index] += gradient
++            position += 1
++
++    # Add contributions from all spatial positions for each weight.
++    weight_matrix_gradients = np.matmul(patches.T, gradient_matrix)
++    # Add contributions from all filters for each value in a patch.
++    patch_gradients = np.matmul(gradient_matrix, filter_weights.T)
++
++    kernel_gradients = np.empty(kernels.shape)
+     for filter_index in range(filter_count):
+-        for channel in range(input_channels):
+-            image_gradient, kernel_gradient, _ = convolve_image_backward(inputs[channel], kernels[filter_index, channel], output_gradients[filter_index], stride=stride, padding=padding)
+-
+-            for row in range(height):
+-                for column in range(width):
+-                    input_gradients[channel, row, column] += image_gradient[row, column]
+-
++        feature = 0
++        for channel in range(channels):
+             for row in range(kernel_height):
+                 for column in range(kernel_width):
+-                    kernel_gradients[filter_index, channel, row, column] = kernel_gradient[row, column]
+-
+-        for row in range(output_height):
+-            for column in range(output_width):
+-                bias_gradients[filter_index] += output_gradients[filter_index, row, column]
++                    kernel_gradients[filter_index, channel, row, column] = weight_matrix_gradients[feature, filter_index]
++                    feature += 1
++
++    padded_gradients = np.zeros((channels, height + 2 * padding, width + 2 * padding))
++    position = 0
++    for output_row in range(output_height):
++        for output_column in range(output_width):
++            feature = 0
++            for channel in range(channels):
++                for kernel_row in range(kernel_height):
++                    for kernel_column in range(kernel_width):
++                        row = output_row * stride + kernel_row
++                        column = output_column * stride + kernel_column
++                        # Overlapping patches must add into the same input pixel.
++                        padded_gradients[channel, row, column] += patch_gradients[position, feature]
++                        feature += 1
++            position += 1
++
++    input_gradients = np.empty(inputs.shape)
++    for channel in range(channels):
++        for row in range(height):
++            for column in range(width):
++                input_gradients[channel, row, column] = padded_gradients[channel, row + padding, column + padding]
+ 
+     return input_gradients, kernel_gradients, bias_gradients
++
+ 
+ 
+ def sample_latent_backward(log_variance, noise, latent_gradients):
+@@ -460,8 +477,9 @@
+ 
+ 
+ def update_parameter(parameter, gradients, learning_rate):
+-    for index in np.ndindex(parameter.shape):  # Visit every index in parameter's shape
+-        parameter[index] -= learning_rate * gradients[index]
++    # Elementwise SGD; update the existing array rather than replacing it.
++    np.subtract(parameter, learning_rate * gradients, out=parameter)
++
+ 
+ 
+ def initialize_encoder(image_shape, filter_counts, latent_size, rng, kernel_size=3, stride=2, padding=1):
+@@ -684,3 +702,46 @@
+     update_decoder(decoder, decoder_gradients, learning_rate)
+ 
+     return total_loss, pixel_loss, latent_loss
++
++
++def image_to_patches(inputs, kernel_height, kernel_width, stride, padding):
++    """One row per output position, one column per channel/kernel coordinate."""
++    channels, height, width = inputs.shape
++    output_height = convolution_output_size(height, kernel_height, stride, padding)
++    output_width = convolution_output_size(width, kernel_width, stride, padding)
++    patch_size = channels * kernel_height * kernel_width
++    patches = np.empty((output_height * output_width, patch_size))
++
++    for channel in range(channels):
++        padded = pad_image(inputs[channel], padding)
++        position = 0
++        for output_row in range(output_height):
++            for output_column in range(output_width):
++                feature = channel * kernel_height * kernel_width
++                for kernel_row in range(kernel_height):
++                    for kernel_column in range(kernel_width):
++                        row = output_row * stride + kernel_row
++                        column = output_column * stride + kernel_column
++                        patches[position, feature] = padded[row, column]
++                        feature += 1
++                position += 1
++
++    return patches
++
++
++
++def kernels_to_matrix(kernels):
++    """Each column contains one filter, in the same order as a patch."""
++    filters, channels, kernel_height, kernel_width = kernels.shape
++    matrix = np.empty((channels * kernel_height * kernel_width, filters))
++
++    for filter_index in range(filters):
++        feature = 0
++        for channel in range(channels):
++            for row in range(kernel_height):
++                for column in range(kernel_width):
++                    matrix[feature, filter_index] = kernels[filter_index, channel, row, column]
++                    feature += 1
++
++    return matrix
++
+--- train.py
++++ proposed/train.py
+@@ -9,7 +9,7 @@
+ from src.vae import initialize_decoder, initialize_encoder, train_step
+ 
+ 
+-def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
++def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta, plot_every=10):
+     sample_count = len(inputs)
+     history = []
+     run_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+@@ -26,11 +26,7 @@
+         pixel_loss_sum = 0.0
+         latent_loss_sum = 0.0
+ 
+-        sample_count = 0
+-
+         for sample_index in sample_order:
+-            print(sample_count)
+-            sample_count += 1
+             total_loss, pixel_loss, latent_loss = train_step(inputs[sample_index], encoder, decoder, rng, learning_rate, beta)
+ 
+             total_loss_sum += total_loss
+@@ -47,7 +43,8 @@
+ 
+         epoch_name = f"epoch-{epoch + 1:03d}"
+         save_checkpoint(checkpoint_directory / f"{epoch_name}.pkl", encoder, decoder, rng, epoch + 1, history, learning_rate, beta)
+-        save_reconstructions(output_directory / f"{epoch_name}.svg", inputs, encoder, decoder, epoch + 1)
++        if epoch == 0 or (epoch + 1) % plot_every == 0 or epoch + 1 == epochs:
++            save_reconstructions(output_directory / f"{epoch_name}.svg", inputs, encoder, decoder, epoch + 1)
+ 
+     return history
+ 
