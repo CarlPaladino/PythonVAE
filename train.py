@@ -12,10 +12,10 @@ from src.data import load_images
 # from src.vae import initialize_decoder, initialize_encoder, train_step
 
 
-def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
+def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta, latent_size):
     sample_count = len(inputs)
     history = []
-    run_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    run_name = f"latent-{latent_size}_rng-{rng.bit_generator.seed_seq.entropy}_beta-{beta}_lr-{learning_rate}_epochs-{epochs}"
     checkpoint_directory = Path("checkpoints") / run_name
     output_directory = Path("outputs") / run_name
 
@@ -32,7 +32,7 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
         sample_count = 0
 
         for sample_index in sample_order:
-            print(f"\rSample {sample_count}/{len(inputs)}", end="", flush=True)
+            print(f"\rSample {sample_count + 1}/{len(inputs)}", end="", flush=True)
             sample_count += 1
             total_loss, pixel_loss, latent_loss = train_step(inputs[sample_index], encoder, decoder, rng, learning_rate, beta)
 
@@ -59,13 +59,13 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta):
 
 def main():
     random_seed = 9
-    sample_limit = None
-    epochs = 50
+    sample_limit = 2000
+    epochs = 200
     learning_rate = 0.001
-    beta = 1.0
+    beta = 0.7
 
-    filter_counts = [8, 16]
-    latent_size = 16
+    filter_counts = [32, 64]
+    latent_size = 64
 
     rng = np.random.default_rng(random_seed)
 
@@ -75,7 +75,7 @@ def main():
     encoder = initialize_encoder(image_shape, filter_counts, latent_size, rng, kernel_size=3, stride=2, padding=1)
     decoder = initialize_decoder(encoder, image_channels=image_shape[0], latent_size=latent_size, rng=rng)
 
-    history = train(inputs, encoder, decoder, rng, epochs, learning_rate, beta)
+    history = train(inputs, encoder, decoder, rng, epochs, learning_rate, beta, latent_size)
 
     return encoder, decoder, history
 
