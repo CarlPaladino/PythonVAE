@@ -59,17 +59,17 @@ def train(inputs, encoder, decoder, rng, epochs, learning_rate, beta, latent_siz
 
 def main():
     random_seed = 9
-    sample_limit = 2000
+    sample_limit = None
     epochs = 200
     learning_rate = 0.001
-    beta = 0.7
+    beta = 0.5
 
     filter_counts = [32, 64]
-    latent_size = 64
+    latent_size = 16
 
     rng = np.random.default_rng(random_seed)
 
-    inputs, _ = load_images("data/raw/emnist-balanced-train.csv", limit=sample_limit)
+    inputs, _ = load_images("data/raw/emnist-digits-train.csv", limit=sample_limit)
     image_shape = inputs[0].shape
 
     encoder = initialize_encoder(image_shape, filter_counts, latent_size, rng, kernel_size=3, stride=2, padding=1)

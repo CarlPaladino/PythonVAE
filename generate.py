@@ -91,7 +91,6 @@ def project_latents(means, generated_latents, latent_axes=None):
 
 
 def save_figure(figure, output_directory, name):
-    figure.savefig(output_directory / f"{name}.png", dpi=160)
     figure.savefig(output_directory / f"{name}.svg")
 
 
@@ -159,7 +158,7 @@ def plot_latent_statistics(means, standard_deviations, output_directory, title):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, help="Defaults to the most recently saved epoch checkpoint.")
-    parser.add_argument("--data", type=Path, default=Path("data/raw/emnist-balanced-test.csv"))
+    parser.add_argument("--data", type=Path, default=Path("data/raw/emnist-digits-test.csv"))
     parser.add_argument("--map-samples", type=int, default=500, help="Number of CSV images to encode for the plots.")
     parser.add_argument("--count", type=int, default=25, help="Number of randomly generated images.")
     parser.add_argument("--seed", type=int, default=9)
